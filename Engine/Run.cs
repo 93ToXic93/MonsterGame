@@ -1,5 +1,4 @@
-﻿using Microsoft.EntityFrameworkCore.Storage.ValueConversion.Internal;
-using MonsterGame.Engine.Enums;
+﻿using MonsterGame.Engine.Enums;
 using MonsterGame.Engine.Models;
 using MonsterGame.Infrastructure;
 using MonsterGame.Infrastructure.Models;
@@ -66,6 +65,9 @@ namespace MonsterGame.Engine
                 response = Console.ReadKey().KeyChar;
             }
 
+            int addStrength = 0;
+            int addAgility = 0;
+            int addIntelligence = 0;
 
             if (response == 'Y' || response == 'y')
             {
@@ -77,7 +79,7 @@ namespace MonsterGame.Engine
                     Console.Write("Add to Strength: ");
                     string addStr = Console.ReadLine();
 
-                    var isNumber = int.TryParse(addStr, out var addStrength);
+                    var isNumber = int.TryParse(addStr, out addStrength);
 
                     if (addStrength > remainingPoints || !isNumber)
                     {
@@ -96,7 +98,7 @@ namespace MonsterGame.Engine
 
                     string addAgi = Console.ReadLine();
 
-                    isNumber = int.TryParse(addAgi, out var addAgility);
+                    isNumber = int.TryParse(addAgi, out addAgility);
 
                     if (addAgility > remainingPoints || !isNumber)
                     {
@@ -114,7 +116,7 @@ namespace MonsterGame.Engine
                     Console.Write("Add to Intelligence: ");
                     string addInt = Console.ReadLine();
 
-                    isNumber = int.TryParse(addInt, out var addIntelligence);
+                    isNumber = int.TryParse(addInt, out addIntelligence);
 
                     if (addIntelligence > remainingPoints || !isNumber)
                     {
@@ -124,29 +126,22 @@ namespace MonsterGame.Engine
 
                     remainingPoints -= addIntelligence;
 
-                    if (remainingPoints == 0)
-                    {
-                        continue;
-                    }
-
-                    champion.Strength += addStrength;
-                    champion.Agility += addAgility;
-                    champion.Intelligence += addIntelligence;
-                    champion.Setup();
-                    remainingPoints -= (addStrength + addAgility + addIntelligence);
-
                 }
+                champion.Strength += addStrength;
+                champion.Agility += addAgility;
+                champion.Intelligence += addIntelligence;
+                champion.Setup();
             }
 
             using var dbContext = new ApplicationDbContext();
 
             Champ champ = new Champ()
             {
-                Damage = champion.Agility,
+                Damage = champion.Damage,
                 ChampType = champion.GetType().Name,
                 CreatedOn = DateTime.Now,
-                Mana = champion.Intelligence,
-                Health = champion.Strength
+                Mana = champion.Mana,
+                Health = champion.Health
             };
 
             dbContext.Champions.Add(champ);
@@ -163,123 +158,244 @@ namespace MonsterGame.Engine
         {
             const int rowOfGrid = 10;
             const int colOfGrid = 10;
-            bool isThePlayerMadeMove = true;
-
+            bool isThePlayerMadeMove = false;
             Random random = new Random();
             List<Monster> monsters = new List<Monster>();
+            List<(int Row, int Col)> occupiedPositions = new List<(int Row, int Col)>();
+            var grid = ClearAndSetTheFirstLookOfTheGrid(champion, rowOfGrid, colOfGrid);
 
             while (true)
             {
-                Console.Clear();
 
-                char[,] grid = new char[rowOfGrid, colOfGrid];
-
-                // Fill the grid with the default symbol
-                for (int row = 0; row < rowOfGrid; row++)
+                Monster newMonster = new Monster
                 {
-                    for (int col = 0; col < colOfGrid; col++)
-                    {
-                        grid[row, col] = '\u2592'; // Default symbol
-                    }
+                    PositionRow = random.Next(0, rowOfGrid),
+                    PositionCol = random.Next(0, colOfGrid)
+                };
+
+                while (IsMonsterSpawningTooClose(newMonster, champion) ||
+                       monsters.Any(m => m.PositionRow == newMonster.PositionRow && m.PositionCol == newMonster.PositionCol) ||
+                       occupiedPositions.Any(p => p.Row == newMonster.PositionRow && p.Col == newMonster.PositionCol))
+                {
+                    newMonster.PositionRow = random.Next(0, rowOfGrid);
+                    newMonster.PositionCol = random.Next(0, colOfGrid);
                 }
 
-                Console.Write($"Health: {champion.Health} ");
-                Console.Write($"Mana: {champion.Mana}");
+                monsters.Add(newMonster);
+                occupiedPositions.Add((newMonster.PositionRow, newMonster.PositionCol));
+                grid[newMonster.PositionRow, newMonster.PositionCol] = newMonster.Symbol;
 
-                Console.WriteLine();
-                Console.WriteLine();
+                UpdateTheGrid(rowOfGrid, colOfGrid, grid, monsters.Count, champion);
+
+                while (!isThePlayerMadeMove)
+                {
+                    char action = Console.ReadKey().KeyChar;
+                    string request = action.ToString().ToLower();
+
+                    if (request == "t" || request == "w" || request == "s" || request == "a" || request == "d" || request == "q" || request == "e" || request == "z" || request == "x")
+                    {
+                        grid[champion.PositionRow, champion.PositionCol] = '\u2592';
+
+                        (int newRow, int newCol) = request switch
+                        {
+                            "w" => (champion.PositionRow - 1, champion.PositionCol),
+                            "s" => (champion.PositionRow + 1, champion.PositionCol),
+                            "a" => (champion.PositionRow, champion.PositionCol - 1),
+                            "d" => (champion.PositionRow, champion.PositionCol + 1),
+                            "q" => (champion.PositionRow - 1, champion.PositionCol - 1),
+                            "e" => (champion.PositionRow - 1, champion.PositionCol + 1),
+                            "z" => (champion.PositionRow + 1, champion.PositionCol - 1),
+                            "x" => (champion.PositionRow + 1, champion.PositionCol + 1),
+                            _ => (champion.PositionRow, champion.PositionCol)
+                        };
+
+                        if (IsMoveOutOfBounds(newRow, newCol, rowOfGrid, colOfGrid) || monsters.Any(m => m.PositionRow == newRow && m.PositionCol == newCol))
+                        {
+                            Console.WriteLine("Wrong move");
+                            continue;
+                        }
+
+                        champion.PositionRow = newRow;
+                        champion.PositionCol = newCol;
+                        isThePlayerMadeMove = true;
+
+                        if (request == "t")
+                        {
+                            AttackMonster(champion, monsters, grid, ref isThePlayerMadeMove, occupiedPositions);
+                        }
+                    }
+                    else
+                    {
+                        Console.WriteLine("Wrong move");
+                    }
+                }
 
                 grid[champion.PositionRow, champion.PositionCol] = champion.Symbol;
 
                 if (isThePlayerMadeMove)
                 {
-                    Monster newMonster = new Monster
-                    {
-
-                        PositionRow = random.Next(0, 10),
-                        PositionCol = random.Next(0, 10)
-                    };
-
-                    monsters.Add(newMonster);
-
-                    foreach (var monster in monsters)
-                    {
-                        if (monster.PositionRow < champion.PositionRow)
-                        {
-                            monster.PositionRow++;
-                        }
-                        else if (monster.PositionRow > champion.PositionRow)
-                        {
-                            monster.PositionRow--;
-                        }
-
-                        if (monster.PositionCol < champion.PositionCol)
-                        {
-                            monster.PositionCol++;
-                        }
-                        else if (monster.PositionCol > champion.PositionCol)
-                        {
-                            monster.PositionCol--;
-                        }
-
-                        grid[monster.PositionRow, monster.PositionCol] = monster.Symbol;
-                    }
-                }
-
-                for (int row = 0; row < rowOfGrid; row++)
-                {
-                    for (int col = 0; col < colOfGrid; col++)
-                    {
-                        Console.Write(grid[row, col]);
-                    }
-                    Console.WriteLine();
-                }
-
-                Console.WriteLine();
-
-                Console.WriteLine("Choose action:");
-                Console.WriteLine("1) Attack");
-                Console.WriteLine("2) Move");
-                Console.WriteLine("The only options are:");
-                Console.WriteLine("W -> Move up");
-                Console.WriteLine("S -> Move down");
-                Console.WriteLine("D -> Move right");
-                Console.WriteLine("А -> Move left");
-                Console.WriteLine("Е -> Move diagonally up &right");
-                Console.WriteLine("X -> Move diagonally down &right");
-                Console.WriteLine("Q -> Move diagonally up &left");
-                Console.WriteLine("Z -> Move diagonally down &left");
-                Console.WriteLine("T -> Attack");
-
-                char action = Console.ReadKey().KeyChar;
-
-                string request = action.ToString().ToLower();
-
-                if (request == "w") { champion.PositionRow -= 1; isThePlayerMadeMove = true; }
-                else if (request == "s") { champion.PositionRow += 1; isThePlayerMadeMove = true; }
-                else if (request == "a") { champion.PositionCol -= 1; isThePlayerMadeMove = true; }
-                else if (request == "d") { champion.PositionCol += 1; isThePlayerMadeMove = true; }
-                else if (request == "q") { champion.PositionRow -= 1; champion.PositionCol -= 1; isThePlayerMadeMove = true; }
-                else if (request == "e") { champion.PositionRow -= 1; champion.PositionCol += 1; isThePlayerMadeMove = true; }
-                else if (request == "z") { champion.PositionRow += 1; champion.PositionCol -= 1; isThePlayerMadeMove = true; }
-                else if (request == "x") { champion.PositionRow += 1; champion.PositionCol += 1; isThePlayerMadeMove = true; }
-                else if (request == "t")
-                {
-                    isThePlayerMadeMove = true;
-                }
-                else
-                {
+                    MoveMonstersTowardsPlayer(champion, monsters, grid);
                     isThePlayerMadeMove = false;
-                    continue;
                 }
 
-
-                if (champion.Health <= 0)
+                foreach (var monster in monsters)
                 {
-                    Console.WriteLine("Game Over!");
-                    break;
+                    if (Math.Abs(monster.PositionRow - champion.PositionRow) <= 1
+                        && Math.Abs(monster.PositionCol - champion.PositionCol) <= 1)
+                    {
+                        champion.Health -= monster.Damage;
+
+                        Console.WriteLine($"Monster attacks the player! Player's health: {champion.Health}");
+                        Thread.Sleep(1500);
+
+                        if (champion.Health <= 0)
+                        {
+                            Console.WriteLine("Game Over!");
+                            return;
+                        }
+                    }
                 }
             }
         }
+
+        private void AttackMonster(Champion champion, List<Monster> monsters, char[,] grid, ref bool isThePlayerMadeMove, List<(int Row, int Col)> occupiedPositions)
+        {
+            List<Monster> monstersToAttack = monsters.Where(m => Math.Abs(m.PositionRow - champion.PositionRow) <= champion.Range && Math.Abs(m.PositionCol - champion.PositionCol) <= champion.Range).ToList();
+
+            if (!monstersToAttack.Any())
+            {
+                Console.WriteLine("No available targets in your range.");
+                Thread.Sleep(1500);
+                isThePlayerMadeMove = false;
+                return;
+            }
+
+            Console.WriteLine("Choose who to attack?");
+            for (int i = 0; i < monstersToAttack.Count; i++)
+            {
+                Console.WriteLine($"To attack monster {i + 1} press {i + 1} with health: {monstersToAttack[i].Health}");
+            }
+
+            while (true)
+            {
+                char actionAttack = Console.ReadKey().KeyChar;
+                if (int.TryParse(actionAttack.ToString(), out int pressedKey) && pressedKey > 0 && pressedKey <= monstersToAttack.Count)
+                {
+                    var selectedMonster = monstersToAttack[pressedKey - 1];
+                    selectedMonster.Health -= champion.Damage;
+
+                    if (selectedMonster.Health <= 0)
+                    {
+                        monsters.Remove(selectedMonster);
+                        occupiedPositions.Remove((selectedMonster.PositionRow, selectedMonster.PositionCol));
+                        grid[selectedMonster.PositionRow, selectedMonster.PositionCol] = '\u2592';
+                        Console.WriteLine("Well done! You killed the monster!");
+                        Thread.Sleep(1500);
+                    }
+                    else
+                    {
+                        Console.WriteLine($"Remaining health of the monster: {selectedMonster.Health}");
+                    }
+
+                    Thread.Sleep(3000);
+                    break;
+                }
+
+                Console.WriteLine("Try again, choose an available monster to attack.");
+            }
+
+            isThePlayerMadeMove = true;
+        }
+
+        private void MoveMonstersTowardsPlayer(Champion champion, List<Monster> monsters, char[,] grid)
+        {
+            foreach (var monster in monsters)
+            {
+                grid[monster.PositionRow, monster.PositionCol] = '\u2592';
+
+                int rowDirection = Math.Sign(champion.PositionRow - monster.PositionRow);
+                int colDirection = Math.Sign(champion.PositionCol - monster.PositionCol);
+
+                (int newRow, int newCol) = (monster.PositionRow + rowDirection, monster.PositionCol);
+                if (IsMoveOutOfBounds(newRow, newCol, 10, 10)
+                    || monsters.Any(m => m.PositionRow == newRow && m.PositionCol == newCol)
+                    || (newRow == champion.PositionRow && newCol == champion.PositionCol))
+                {
+                    newRow = monster.PositionRow;
+                    newCol = monster.PositionCol + colDirection;
+
+                    if (IsMoveOutOfBounds(newRow, newCol, 10, 10)
+                        || monsters.Any(m => m.PositionRow == newRow && m.PositionCol == newCol)
+                        || (newRow == champion.PositionRow && newCol == champion.PositionCol))
+                    {
+                        newRow = monster.PositionRow + rowDirection;
+                        newCol = monster.PositionCol + colDirection;
+
+                        if (IsMoveOutOfBounds(newRow, newCol, 10, 10)
+                            || monsters.Any(m => m.PositionRow == newRow && m.PositionCol == newCol)
+                            || (newRow == champion.PositionRow && newCol == champion.PositionCol))
+                        {
+                            newRow = monster.PositionRow;
+                            newCol = monster.PositionCol;
+                        }
+                    }
+                }
+
+                monster.PositionRow = newRow;
+                monster.PositionCol = newCol;
+
+
+                grid[monster.PositionRow, monster.PositionCol] = monster.Symbol;
+            }
+        }
+
+        private char[,] ClearAndSetTheFirstLookOfTheGrid(Champion champion, int rowOfGrid, int colOfGrid)
+        {
+            var grid = new char[rowOfGrid, colOfGrid];
+            for (int row = 0; row < rowOfGrid; row++)
+            {
+                for (int col = 0; col < colOfGrid; col++)
+                {
+                    grid[row, col] = '\u2592';
+                }
+            }
+            grid[champion.PositionRow, champion.PositionCol] = champion.Symbol;
+            return grid;
+        }
+
+        private bool IsMonsterSpawningTooClose(Monster monster, Champion champion)
+        {
+            return Math.Abs(monster.PositionRow - champion.PositionRow) <= 1 && Math.Abs(monster.PositionCol - champion.PositionCol) <= 1;
+        }
+
+        private bool IsMoveOutOfBounds(int row, int col, int rowOfGrid, int colOfGrid)
+        {
+            return row < 0 || row >= rowOfGrid || col < 0 || col >= colOfGrid;
+        }
+
+        private void UpdateTheGrid(int rowOfGrid, int colOfGrid, char[,] grid, int monstersCount, Champion champion)
+        {
+            Console.Clear();
+
+            Console.Write($"Your health: {champion.Health} ");
+            Console.Write($"Your mana: {champion.Mana}");
+
+            Console.WriteLine();
+            Console.WriteLine();
+
+            for (int row = 0; row < rowOfGrid; row++)
+            {
+                for (int col = 0; col < colOfGrid; col++)
+                {
+                    Console.Write(grid[row, col]);
+                }
+                Console.WriteLine();
+            }
+            Console.WriteLine();
+
+            Console.WriteLine($"Monsters on the map: {monstersCount}");
+            Console.WriteLine("Move with W, S, A, D or attack with T, diagonals: Q (up-left), E (up-right), Z (down-left), X (down-right)");
+        }
+
     }
 }

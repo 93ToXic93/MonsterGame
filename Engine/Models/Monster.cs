@@ -16,7 +16,13 @@
             Intelligence = _random.Next(1, 4);
             Range = 1;
             Symbol = 'M';
-            Setup();
+            SetupMonster();
+        }
+        private void SetupMonster()
+        {
+            Health = Strength;
+            Mana = Intelligence;
+            Damage = Agility;
         }
     }
 }
